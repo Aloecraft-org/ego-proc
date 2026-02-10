@@ -1,0 +1,16 @@
+[package]
+name = "aloeproc"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "aloeproc"
+path = "src/lib.rs"
+
+[dependencies]
+log = "0.4"
+anyhow = "1.0.101"
+tokio = { version = "1", features = ["sync", "macros", "io-util", "rt", "time"] }
+async-trait = "0.1"
+aloeplatform = { path = "../aloeplatform" }
+uuid = {version = "1.20.0",features = ["v4"]}

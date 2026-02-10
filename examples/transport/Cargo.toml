@@ -1,0 +1,11 @@
+[package]
+name = "transport"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+aloeproc = { path = "../.." }
+anyhow = "1.0.101"
+async-trait = "0.1.89"
+uuid = {version = "1.20.0",features = ["v4"]}
+tokio = { version = "1", features = ["sync", "macros", "io-util", "rt", "time"] }
