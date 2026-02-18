@@ -1,7 +1,22 @@
 // tests/integration_test.rs
 
-use aloeproc::actor::{ActorState, Orchestrator}; // Adjust crate name
-use aloeproc::primitives::{ControlSignal, ProcData, OrchestratorStrategy};
+// 1. Import the WASM test macro
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+use wasm_bindgen_test::wasm_bindgen_test;
+
+// 2. Configure the WASM test runner (run in browser or node)
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
+
+// 3. Create a helper macro to switch between Tokio and Wasm automatically
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+use tokio::test as async_test;
+
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+use wasm_bindgen_test as async_test;
+
+use aloeproc::actor::{ActorState, Orchestrator};
+use aloeproc::primitives::{ControlSignal, NoOutput, ProcData, OrchestratorStrategy};
 use async_trait::async_trait;
 use tokio::sync::mpsc;
 use std::time::Duration;
@@ -21,6 +36,7 @@ struct EchoState {
 #[async_trait]
 impl ActorState for EchoState {
     type D = TestMsg;
+    type O = NoOutput;
 
     fn interval(&self) -> Duration {
         Duration::from_millis(10) 
@@ -37,7 +53,11 @@ impl ActorState for EchoState {
 
     async fn on_data(&mut self, data: Self::D) -> anyhow::Result<()> {
         if data.0 == "CRASH" {
-            panic!("Test requested crash!");
+            // WASI FRIENDLY "CRASH":
+            // We return an error, which causes the Actor loop 
+            // (in actor.rs) to log the error and break running = false.
+            // This stops the actor naturally without aborting the process.
+            return Err(anyhow::anyhow!("Simulated Crash"));
         }
         let _ = self.reply_tx.send(format!("ECHO: {}", data.0)).await;
         Ok(())
@@ -45,7 +65,7 @@ impl ActorState for EchoState {
 }
 
 
-#[tokio::test]
+#[async_test]
 async fn test_actor_communication() {
     // Setup reply channel (Test listens to this)
     let (reply_tx, mut reply_rx) = mpsc::channel(1);
@@ -85,14 +105,14 @@ async fn test_actor_communication() {
     handle.stop().await.unwrap();
     
     // 4. Verify Shutdown
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    aloeplatform::sleep(Duration::from_millis(50)).await;
     orch.maintain().await;
     
     // The actor should be gone from the orchestrator
     assert!(orch.get_handle(id).is_none());
 }
 
-#[tokio::test]
+#[async_test]
 async fn test_orchestrator_restarts_crashed_actor() {
     let (reply_tx, mut reply_rx) = mpsc::channel(10);
     let reply_tx_clone = reply_tx.clone();
@@ -119,11 +139,14 @@ async fn test_orchestrator_restarts_crashed_actor() {
     let _ = handle.notify(TestMsg("CRASH".to_string())).await;
 
     // 5. Wait for death
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    aloeplatform::sleep(Duration::from_millis(150)).await;
 
     // 6. Run Maintenance
     // This should see the finished JoinHandle and run the factory
     orch.maintain().await;
+
+
+    aloeplatform::sleep(Duration::from_millis(150)).await;
 
     // 7. Verify Respawn
     // We can't ask for `old_id` anymore. We need to find the NEW id.

@@ -1,8 +1,6 @@
 use aloeproc::actor::ActorState;
 use aloeproc::primitives::{ControlSignal, ProcData, ProcOutput};
 use async_trait::async_trait;
-use tokio::sync::mpsc;
-use uuid::Uuid;
 
 // Define what the worker sends back
 #[derive(Debug, Clone)]
@@ -18,22 +16,25 @@ impl ProcData for ConnectionData {}
 
 pub struct ConnectionState {
     pub id: u32,
-    manager_tx: mpsc::Sender<ConnectionOutput>,
+    output_buffer: Vec<ConnectionOutput>,
 }
 
 impl ConnectionState {
-    pub fn new(id: u32, manager_tx: mpsc::Sender<ConnectionOutput>) -> Self {
-        Self { id, manager_tx }
+    pub fn new(id: u32) -> Self {
+        Self {
+            id,
+            output_buffer: Vec::new(),
+        }
     }
 }
 
 #[async_trait]
 impl ActorState for ConnectionState {
     type D = ConnectionData;
+    type O = ConnectionOutput;
 
     async fn on_tick(&mut self) -> anyhow::Result<bool> {
-        
-        let _ = self.manager_tx.send(ConnectionOutput::BytesReceived(1024)).await;
+        self.output_buffer.push(ConnectionOutput::BytesReceived(1024));
         Ok(true)
     }
 
@@ -44,5 +45,9 @@ impl ActorState for ConnectionState {
     async fn on_data(&mut self, data: Self::D) -> anyhow::Result<()> {
         println!("[Conn {}] Sending packet: {:?}", self.id, data);
         Ok(())
+    }
+
+    fn take_output(&mut self) -> Vec<Self::O> {
+        std::mem::take(&mut self.output_buffer)
     }
 }

@@ -1,4 +1,4 @@
-use crate::primitives::{ControlSignal, ProcData, Report};
+use crate::primitives::{ControlSignal, ProcData, ProcOutput, Report};
 use tokio::sync::{broadcast, mpsc};
 use async_trait::async_trait;
 use uuid::Uuid;
@@ -7,6 +7,7 @@ use std::time::Duration;
 #[async_trait::async_trait]
 pub trait ActorState: Send + Sync {
     type D: ProcData;
+    type O: ProcOutput;
 
     fn interval(&self) -> Duration {
         Duration::from_millis(100)
@@ -14,6 +15,12 @@ pub trait ActorState: Send + Sync {
     async fn on_tick(&mut self) -> anyhow::Result<bool>;
     async fn on_signal(&mut self, signal: ControlSignal) -> anyhow::Result<()>;
     async fn on_data(&mut self, data: Self::D) -> anyhow::Result<()>;
+
+    /// Collect any output the state has buffered since the last tick.
+    /// Default: no output. Override to push data upward to the managing Orchestrator.
+    fn take_output(&mut self) -> Vec<Self::O> {
+        vec![]
+    }
 }
 
 pub struct Actor<S: ActorState> {
@@ -22,7 +29,8 @@ pub struct Actor<S: ActorState> {
     pub sig_notify: bool,
     pub health_tx: broadcast::Sender<Report>,
     pub control_rx: mpsc::Receiver<ControlSignal>,
-    pub data_rx:  mpsc::Receiver<S::D>,
+    pub data_rx: mpsc::Receiver<S::D>,
+    pub output_tx: mpsc::Sender<(Uuid, S::O)>,
 }
 
 impl<S: ActorState> Actor<S> {
@@ -30,7 +38,8 @@ impl<S: ActorState> Actor<S> {
         state: S,
         control_rx: mpsc::Receiver<ControlSignal>,
         health_tx: broadcast::Sender<Report>,
-        data_rx: mpsc::Receiver<S::D>
+        data_rx: mpsc::Receiver<S::D>,
+        output_tx: mpsc::Sender<(Uuid, S::O)>,
     ) -> Self {
         Self {
             id: Uuid::new_v4(),
@@ -38,14 +47,15 @@ impl<S: ActorState> Actor<S> {
             sig_notify: false,
             control_rx,
             health_tx,
-            data_rx
+            data_rx,
+            output_tx,
         }
     }
 
     pub async fn run(mut self) {
         let interval_duration = self.state.interval();
-        let mut ticker = tokio::time::interval(interval_duration);
-        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        let mut ticker = aloeplatform::time::Interval::new(interval_duration);
+        ticker.set_missed_tick_behavior(aloeplatform::time::MissedTickBehavior::Skip);
 
         let mut running = true;
         let mut paused = false;
@@ -72,14 +82,14 @@ impl<S: ActorState> Actor<S> {
                     if paused { continue; }
                     
                     // 2. The Loop
-                    let start = std::time::Instant::now();
+                    let start = aloeplatform::Instant::now();
                     
                     while let Ok(data) = self.data_rx.try_recv() {
                         if let Err(e) = self.state.on_data(data).await {
                             log::error!("[{}] Data Error: {:?}", self.id, e);
+                            running = false;
                         }
                     }
-
 
                     // Run Logic
                     match self.state.on_tick().await {
@@ -91,6 +101,11 @@ impl<S: ActorState> Actor<S> {
                             running = false;
                         }
                     }
+                    // Drain output from state and forward tagged with our ID
+                    for item in self.state.take_output() {
+                        let _ = self.output_tx.send((self.id, item)).await;
+                    }
+
                     // Measure Health & Report
                     let elapsed = start.elapsed();
                     let report = self.measure_health(elapsed, interval_duration);

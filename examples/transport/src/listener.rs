@@ -1,5 +1,5 @@
 use aloeproc::actor::ActorState;
-use aloeproc::primitives::{ControlSignal, ProcData};
+use aloeproc::primitives::{ControlSignal, NoOutput, ProcData};
 use async_trait::async_trait;
 
 #[derive(Debug, Clone)]
@@ -11,6 +11,7 @@ pub struct ConnectionListener;
 #[async_trait]
 impl ActorState for ConnectionListener {
     type D = ListenerEvent;
+    type O = NoOutput;
 
     async fn on_tick(&mut self) -> anyhow::Result<bool> {
         // Accept TCP connection...

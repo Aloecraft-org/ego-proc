@@ -2,3 +2,7 @@
 agent.md
 x.md
 .dump
+.xtrpatch
+.xtrshow
+agent
+x.patch

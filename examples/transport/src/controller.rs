@@ -4,8 +4,7 @@ use crate::router::PacketRouter;
 use crate::handler::MessageHandler;
 
 use aloeproc::actor::{ActorState, Orchestrator};
-use aloeproc::ipc::ActorHandle;
-use aloeproc::primitives::{ControlSignal, ProcData, OrchestratorStrategy};
+use aloeproc::primitives::{ControlSignal, NoOutput, ProcData, OrchestratorStrategy};
 use async_trait::async_trait;
 
 #[derive(Debug, Clone)]
@@ -75,6 +74,8 @@ impl TransportController {
 #[async_trait]
 impl ActorState for TransportController {
     type D = ControllerCmd;
+    type O = NoOutput;
+
 
     async fn on_tick(&mut self) -> anyhow::Result<bool> {
         // SUPERVISION LOOP
