@@ -208,6 +208,12 @@ impl<S: ActorState> Orchestrator<S> {
         self.output_rx.try_recv().ok()
     }
 
+    /// Async receive of the next worker output.
+    /// Awaits until an actor produces output or all senders are dropped.
+    pub async fn recv_output_async(&mut self) -> Option<(Uuid, S::O)> {
+        self.output_rx.recv().await
+    }
+
     /// Broadcast `Stop` to all managed actors. Returns the number of actors signaled.
     ///
     /// This is async because `control_tx.send()` is async. For fire-and-forget
