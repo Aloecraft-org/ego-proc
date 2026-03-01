@@ -1,22 +1,11 @@
 // tests/integration_test.rs
 
-// 1. Import the WASM test macro
-#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
-use wasm_bindgen_test::wasm_bindgen_test;
-
-// 2. Configure the WASM test runner (run in browser or node)
-#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
-wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
-
-// 3. Create a helper macro to switch between Tokio and Wasm automatically
-#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
-use tokio::test as async_test;
-
-#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
-use wasm_bindgen_test as async_test;
+mod common;
+use common::{async_test, test};
 
 use aloeproc::actor::{ActorState, Orchestrator};
-use aloeproc::primitives::{ControlSignal, NoOutput, ProcData, OrchestratorStrategy};
+use aloeproc::ipc::{ProcData, ProcOutput, NoOutput};
+use ego2_proto::aloeproc::{ControlSignal, OrchestrationStrategy, OrchestrationType};
 use async_trait::async_trait;
 use tokio::sync::mpsc;
 use std::time::Duration;
@@ -33,7 +22,8 @@ struct EchoState {
     reply_tx: mpsc::Sender<String>,
 }
 
-#[async_trait]
+#[cfg_attr(not(all(target_arch = "wasm32", target_os = "unknown")), async_trait)]
+#[cfg_attr(all(target_arch = "wasm32", target_os = "unknown"), async_trait(?Send))]
 impl ActorState for EchoState {
     type D = TestMsg;
     type O = NoOutput;
@@ -71,7 +61,7 @@ async fn test_actor_communication() {
     let (reply_tx, mut reply_rx) = mpsc::channel(1);
 
     // Setup Orchestrator
-    let mut orch = Orchestrator::<EchoState>::new(OrchestratorStrategy::OneShot);
+    let mut orch = Orchestrator::<EchoState>::new(OrchestrationStrategy::oneshot());
 
     // Spawn Actor
     let state = EchoState { reply_tx };
@@ -118,7 +108,7 @@ async fn test_orchestrator_restarts_crashed_actor() {
     let reply_tx_clone = reply_tx.clone();
 
     // 1. Setup Orchestrator with RESTART strategy and a FACTORY
-    let mut orch = Orchestrator::<EchoState>::new(OrchestratorStrategy::Restart)
+    let mut orch = Orchestrator::<EchoState>::new(OrchestrationStrategy::restart())
         .with_factory(move || {
             EchoState { reply_tx: reply_tx_clone.clone() }
         });

@@ -1,6 +1,7 @@
 use crate::actor::{Actor, ActorState};
-use crate::ipc::ActorHandle;
-use crate::primitives::{ControlSignal, OrchestratorStrategy, ProcData, ProcOutput};
+use crate::ipc::{ActorHandle, ProcData, ProcOutput};
+use ego2_proto::aloeproc::{ActorHealth, ControlSignal, OrchestrationStrategy, OrchestrationType};
+
 use std::collections::HashMap;
 use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
@@ -10,7 +11,7 @@ use uuid::Uuid;
 /// usage: `connections: Orchestrator<ConnectionState>`
 pub struct Orchestrator<S: ActorState + 'static> {
     /// The policy for this group of actors.
-    strategy: OrchestratorStrategy,
+    strategy: OrchestrationStrategy,
 
     /// Active tasks (so we can detect death).
     tasks: HashMap<Uuid, aloeplatform::TaskHandle<()>>,
@@ -30,14 +31,13 @@ pub struct Orchestrator<S: ActorState + 'static> {
     reverse_domain_map: HashMap<Uuid, String>,
 
     /// Upward data flow: all actors send tagged output here.
-    output_tx: mpsc::Sender<(Uuid, S::O)>,
-    output_rx: mpsc::Receiver<(Uuid, S::O)>,
-
-    current_restarts: u32,
+    pub output_tx: mpsc::Sender<(Uuid, S::O)>,
+    pub output_rx: mpsc::Receiver<(Uuid, S::O)>,
+    pub current_restarts: i32,
 }
 
 impl<S: ActorState> Orchestrator<S> {
-    pub fn new(strategy: OrchestratorStrategy) -> Self {
+    pub fn new(strategy: OrchestrationStrategy) -> Self {
         let (output_tx, output_rx) = mpsc::channel(256);
         Self {
             strategy,
@@ -124,25 +124,16 @@ impl<S: ActorState> Orchestrator<S> {
             // Preserve the domain name so we can remap after restart
             let domain_name = self.reverse_domain_map.remove(&id);
 
-            match self.strategy {
-                OrchestratorStrategy::Restart => {
-                    if let Some(new_id) = self.perform_restart(id) {
-                        if let Some(name) = &domain_name {
-                            self.domain_map.insert(name.clone(), new_id);
-                            self.reverse_domain_map.insert(new_id, name.clone());
-                        }
-                    }
-                }
-
+            match OrchestrationType::from_i32(self.strategy.strategy_type) {
                 // NEW: Handle the limit
-                OrchestratorStrategy::RestartAtMost(limit) => {
-                    if self.current_restarts < limit {
+                Some(OrchestrationType::Restart) => {
+                    if self.current_restarts < self.strategy.restart_limit || self.strategy.restart_limit == -1 {
                         self.current_restarts += 1;
                         log::warn!(
                             "Actor {} died. Restarting ({}/{})",
                             id,
                             self.current_restarts,
-                            limit
+                            self.strategy.restart_limit
                         );
                         if let Some(new_id) = self.perform_restart(id) {
                             if let Some(name) = &domain_name {
@@ -154,19 +145,20 @@ impl<S: ActorState> Orchestrator<S> {
                         log::error!(
                             "Actor {} died. Restart limit ({}) reached. Giving up.",
                             id,
-                            limit
+                            self.strategy.restart_limit
                         );
                     }
                 }
 
-                OrchestratorStrategy::OneShot => {
+                Some(OrchestrationType::OneShot) => {
                     log::info!("Actor {} finished naturally.", id);
                 }
-                OrchestratorStrategy::Escalate => {
+                Some(OrchestrationType::Escalate) => {
                     log::error!("Critical actor {} died! Escalating...", id);
                     // In a real app, you might set a flag here to kill the Controller
                     // e.g., self.status = Status::Error;
                 }
+                _ => { }
             }
         }
     }

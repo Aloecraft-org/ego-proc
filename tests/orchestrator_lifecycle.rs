@@ -1,23 +1,11 @@
-// 1. Import the WASM test macro
-#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
-use wasm_bindgen_test::wasm_bindgen_test;
+// tests/orchestrator_lifecycle.rs
 
-// 2. Configure the WASM test runner (run in browser or node)
-#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
-wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
-
-// 3. Create a helper macro to switch between Tokio and Wasm automatically
-#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
-use tokio::test as async_test;
-
-#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
-use wasm_bindgen_test as async_test;
-
+mod common;
+use common::{async_test, test};
 
 use aloeproc::actor::{ActorState, Orchestrator};
-use aloeproc::primitives::{
-    ControlSignal, NoOutput, OrchestratorStrategy, ProcData, ProcOutput,
-};
+use aloeproc::ipc::{ProcData, ProcOutput, NoOutput};
+use ego2_proto::aloeproc::{ControlSignal, OrchestrationStrategy, OrchestrationType};
 use async_trait::async_trait;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
@@ -62,7 +50,8 @@ impl OrcActor {
     }
 }
 
-#[async_trait]
+#[cfg_attr(not(all(target_arch = "wasm32", target_os = "unknown")), async_trait)]
+#[cfg_attr(all(target_arch = "wasm32", target_os = "unknown"), async_trait(?Send))]
 impl ActorState for OrcActor {
     type D = OrcData;
     type O = OrcOutput;
@@ -98,7 +87,7 @@ impl ActorState for OrcActor {
 #[async_test]
 async fn test_spawn_and_maintain() {
     let counter = Arc::new(AtomicU32::new(0));
-    let mut orch = Orchestrator::<OrcActor>::new(OrchestratorStrategy::OneShot);
+    let mut orch = Orchestrator::<OrcActor>::new(OrchestrationStrategy::oneshot());
 
     let id = orch.spawn(OrcActor::normal(counter.clone()));
     assert!(orch.get_handle(id).is_some());
@@ -111,7 +100,7 @@ async fn test_spawn_and_maintain() {
 #[async_test]
 async fn test_death_detection() {
     let counter = Arc::new(AtomicU32::new(0));
-    let mut orch = Orchestrator::<OrcActor>::new(OrchestratorStrategy::OneShot);
+    let mut orch = Orchestrator::<OrcActor>::new(OrchestrationStrategy::oneshot());
 
     let id = orch.spawn(OrcActor::crash_after(1, counter.clone()));
 
@@ -128,7 +117,7 @@ async fn test_restart_strategy() {
     let counter = Arc::new(AtomicU32::new(0));
     let counter_clone = counter.clone();
 
-    let mut orch = Orchestrator::<OrcActor>::new(OrchestratorStrategy::Restart)
+    let mut orch = Orchestrator::<OrcActor>::new(OrchestrationStrategy::restart())
         .with_factory(move || OrcActor::crash_after(1, counter_clone.clone()));
 
     let old_id = orch.spawn(OrcActor::crash_after(1, counter.clone()));
@@ -150,7 +139,7 @@ async fn test_restart_limit() {
     let counter = Arc::new(AtomicU32::new(0));
     let counter_clone = counter.clone();
 
-    let mut orch = Orchestrator::<OrcActor>::new(OrchestratorStrategy::RestartAtMost(2))
+    let mut orch = Orchestrator::<OrcActor>::new(OrchestrationStrategy::restart_at_most(2))
         .with_factory(move || OrcActor::crash_after(1, counter_clone.clone()));
 
     orch.spawn(OrcActor::crash_after(1, counter.clone()));
@@ -173,7 +162,7 @@ async fn test_restart_limit() {
 #[async_test]
 async fn test_oneshot_no_restart() {
     let counter = Arc::new(AtomicU32::new(0));
-    let mut orch = Orchestrator::<OrcActor>::new(OrchestratorStrategy::OneShot);
+    let mut orch = Orchestrator::<OrcActor>::new(OrchestrationStrategy::oneshot());
 
     orch.spawn(OrcActor::crash_after(1, counter.clone()));
 
@@ -186,7 +175,7 @@ async fn test_oneshot_no_restart() {
 #[async_test]
 async fn test_broadcast_stop() {
     let counter = Arc::new(AtomicU32::new(0));
-    let mut orch = Orchestrator::<OrcActor>::new(OrchestratorStrategy::OneShot);
+    let mut orch = Orchestrator::<OrcActor>::new(OrchestrationStrategy::oneshot());
 
     let id1 = orch.spawn(OrcActor::normal(counter.clone()));
     let id2 = orch.spawn(OrcActor::normal(counter.clone()));
@@ -206,8 +195,7 @@ async fn test_broadcast_stop() {
 #[async_test]
 async fn test_named_spawn_lookup() {
     let counter = Arc::new(AtomicU32::new(0));
-    let mut orch = Orchestrator::<OrcActor>::new(OrchestratorStrategy::OneShot);
-
+    let mut orch = Orchestrator::<OrcActor>::new(OrchestrationStrategy::oneshot());
     let id = orch.spawn_named("conn:42".into(), OrcActor::normal(counter.clone()));
 
     // Look up by name
@@ -227,7 +215,7 @@ async fn test_named_spawn_lookup() {
 #[async_test]
 async fn test_output_collection() {
     let counter = Arc::new(AtomicU32::new(0));
-    let mut orch = Orchestrator::<OrcActor>::new(OrchestratorStrategy::OneShot);
+    let mut orch = Orchestrator::<OrcActor>::new(OrchestrationStrategy::oneshot());
 
     let id = orch.spawn(OrcActor::normal(counter.clone()));
 

@@ -1,24 +1,14 @@
-// 1. Import the WASM test macro
-#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
-use wasm_bindgen_test::wasm_bindgen_test;
+// tests/supervision_tree.rs
 
-// 2. Configure the WASM test runner (run in browser or node)
-#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
-wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
-
-// 3. Create a helper macro to switch between Tokio and Wasm automatically
-#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
-use tokio::test as async_test;
-
-#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
-use wasm_bindgen_test as async_test;
-
+mod common;
+use common::{async_test, test};
 
 use aloeproc::actor::{ActorState, Orchestrator};
-use aloeproc::primitives::{
-    ControlSignal, NoOutput, OrchestratorStrategy, ProcData, ProcOutput,
-};
+
+use aloeproc::ipc::{ProcData, ProcOutput, NoOutput};
+use ego2_proto::aloeproc::{ControlSignal, OrchestrationStrategy, OrchestrationType};
 use async_trait::async_trait;
+
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -60,7 +50,8 @@ impl Worker {
     }
 }
 
-#[async_trait]
+#[cfg_attr(not(all(target_arch = "wasm32", target_os = "unknown")), async_trait)]
+#[cfg_attr(all(target_arch = "wasm32", target_os = "unknown"), async_trait(?Send))]
 impl ActorState for Worker {
     type D = WorkerData;
     type O = WorkerOutput;
@@ -104,7 +95,7 @@ struct TestManager {
 
 impl TestManager {
     fn new() -> Self {
-        let workers = Orchestrator::new(OrchestratorStrategy::Restart)
+        let workers = Orchestrator::new(OrchestrationStrategy::restart())
             .with_factory(|| Worker::new(0));
         Self {
             workers,
@@ -113,7 +104,8 @@ impl TestManager {
     }
 }
 
-#[async_trait]
+#[cfg_attr(not(all(target_arch = "wasm32", target_os = "unknown")), async_trait)]
+#[cfg_attr(all(target_arch = "wasm32", target_os = "unknown"), async_trait(?Send))]
 impl ActorState for TestManager {
     type D = ManagerCmd;
     type O = NoOutput;
@@ -147,7 +139,7 @@ impl ActorState for TestManager {
 #[async_test]
 async fn test_manager_pattern() {
     // Manager supervises workers, drains output
-    let mut orch = Orchestrator::<TestManager>::new(OrchestratorStrategy::OneShot);
+    let mut orch = Orchestrator::<TestManager>::new(OrchestrationStrategy::oneshot());
     let mut mgr = TestManager::new();
 
     // Spawn a worker inside the manager before handing it to the orchestrator
@@ -173,7 +165,7 @@ async fn test_kill_worker_manager_restarts() {
     // Spawn a worker that crashes after 1 tick
     mgr.workers.spawn(Worker::crash_after(1, 1));
 
-    let mut orch = Orchestrator::<TestManager>::new(OrchestratorStrategy::OneShot);
+    let mut orch = Orchestrator::<TestManager>::new(OrchestrationStrategy::oneshot());
     let _mgr_id = orch.spawn(mgr);
 
     // Wait for worker to crash and manager to restart it
@@ -191,7 +183,7 @@ async fn test_graceful_shutdown_tree() {
     mgr.workers.spawn(Worker::new(1));
     mgr.workers.spawn(Worker::new(2));
 
-    let mut orch = Orchestrator::<TestManager>::new(OrchestratorStrategy::OneShot);
+    let mut orch = Orchestrator::<TestManager>::new(OrchestrationStrategy::oneshot());
     orch.spawn(mgr);
 
     // Let it run

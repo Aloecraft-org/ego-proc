@@ -1,21 +1,11 @@
-// 1. Import the WASM test macro
-#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
-use wasm_bindgen_test::wasm_bindgen_test;
+// tests/actor_lifecycle.rs
 
-// 2. Configure the WASM test runner (run in browser or node)
-#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
-wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
-
-// 3. Create a helper macro to switch between Tokio and Wasm automatically
-#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
-use tokio::test as async_test;
-
-#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
-use wasm_bindgen_test as async_test;
-
+mod common;
+use common::{async_test, test};
 
 use aloeproc::actor::{Actor, ActorState};
-use aloeproc::primitives::{ControlSignal, NoOutput, ProcData, ProcOutput, Report};
+use aloeproc::ipc::{ProcData, ProcOutput, NoOutput};
+use ego2_proto::aloeproc::{ControlSignal, OrchestrationStrategy, OrchestrationType, ActorHealth, LifecycleStatus};
 use async_trait::async_trait;
 use std::time::Duration;
 use tokio::sync::{broadcast, mpsc};
@@ -69,7 +59,8 @@ impl TestActor {
     }
 }
 
-#[async_trait]
+#[cfg_attr(not(all(target_arch = "wasm32", target_os = "unknown")), async_trait)]
+#[cfg_attr(all(target_arch = "wasm32", target_os = "unknown"), async_trait(?Send))]
 impl ActorState for TestActor {
     type D = TestData;
     type O = TestOutput;
@@ -117,7 +108,7 @@ fn spawn_test_actor(
     Uuid,
     mpsc::Sender<ControlSignal>,
     mpsc::Sender<TestData>,
-    broadcast::Sender<Report>,
+    broadcast::Sender<ActorHealth>,
     mpsc::Receiver<(Uuid, TestOutput)>,
     aloeplatform::spawn::TaskHandle<()>,
 ) {
@@ -150,7 +141,7 @@ async fn test_actor_runs_and_ticks() {
 
     // Health report should arrive
     let report = health_rx.recv().await.expect("Should receive health report");
-    assert!(report.is_alive);
+    assert_eq!(LifecycleStatus::from_i32(report.lifecycle_status), Some(LifecycleStatus::Running));
     assert!(report.saturation >= 0.0);
 
     // Clean up

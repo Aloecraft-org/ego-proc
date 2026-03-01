@@ -1,18 +1,32 @@
-use crate::primitives::{ProcData, ControlSignal, Report};
+use crate::ipc::ProcData;
+
+use ego2_proto::aloeproc::{ActorHealth, ControlSignal};
 use tokio::sync::{mpsc, broadcast};
 
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+pub trait PlatformSendSync: Send + Sync {}
+
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+impl<T: Send + Sync> PlatformSendSync for T {}
+
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+pub trait PlatformSendSync {}
+
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+impl<T> PlatformSendSync for T {}
+
 #[derive(Clone, Debug)]
-pub struct ActorHandle<D: ProcData> {
-    pub health_tx: broadcast::Sender<Report>,
+pub struct ActorHandle<D: Clone + PlatformSendSync> {
+    pub health_tx: broadcast::Sender<ActorHealth>,
     pub control_tx: mpsc::Sender<ControlSignal>,
     pub data_tx: mpsc::Sender<D>,
 }
 
-impl<D: ProcData>  ActorHandle <D>{
-    pub fn new(control_tx: mpsc::Sender<ControlSignal>, health_tx: broadcast::Sender<Report>, data_tx: mpsc::Sender<D>) -> Self {
-        Self { health_tx, control_tx, data_tx}
+impl<D: Clone+ PlatformSendSync> ActorHandle<D> {
+    pub fn new(control_tx: mpsc::Sender<ControlSignal>, health_tx: broadcast::Sender<ActorHealth>, data_tx: mpsc::Sender<D>) -> Self {
+        Self { health_tx, control_tx, data_tx }
     }
-    pub fn subscribe(&self) -> broadcast::Receiver<Report> {
+    pub fn subscribe(&self) -> broadcast::Receiver<ActorHealth> {
         self.health_tx.subscribe()
     }
     pub async fn notify(&self, data: D) -> Result<(), mpsc::error::SendError<D>> {

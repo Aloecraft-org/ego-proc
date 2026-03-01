@@ -1,13 +1,31 @@
-use crate::primitives::{ControlSignal, ProcData, ProcOutput, Report};
+use crate::ipc::{ProcData, ProcOutput};
+use ego2_proto::aloeproc::{ControlSignal, ActorHealth, LifecycleStatus};
 use tokio::sync::{broadcast, mpsc};
 use async_trait::async_trait;
 use uuid::Uuid;
 use std::time::Duration;
 
-#[async_trait::async_trait]
-pub trait ActorState: Send + Sync {
-    type D: ProcData;
-    type O: ProcOutput;
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+pub trait PlatformSendSync: Send + Sync {}
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+impl<T: ?Sized + Send + Sync> PlatformSendSync for T {}
+
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+pub trait PlatformSendSync {}
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+impl<T: ?Sized> PlatformSendSync for T {}
+
+#[cfg_attr(not(all(target_arch = "wasm32", target_os = "unknown")), async_trait::async_trait)]
+#[cfg_attr(all(target_arch = "wasm32", target_os = "unknown"), async_trait::async_trait(?Send))]
+pub trait ActorState: PlatformSendSync {
+    #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+    type D: Clone + Send + Sync;
+    #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+    type D: Clone;
+    #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+    type O: Clone + Send + Sync;
+    #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+    type O: Clone;
 
     fn interval(&self) -> Duration {
         Duration::from_millis(100)
@@ -25,9 +43,10 @@ pub trait ActorState: Send + Sync {
 
 pub struct Actor<S: ActorState> {
     pub id: Uuid,
+    pub lifecycle_status: LifecycleStatus,
     pub state: S,
     pub sig_notify: bool,
-    pub health_tx: broadcast::Sender<Report>,
+    pub health_tx: broadcast::Sender<ActorHealth>,
     pub control_rx: mpsc::Receiver<ControlSignal>,
     pub data_rx: mpsc::Receiver<S::D>,
     pub output_tx: mpsc::Sender<(Uuid, S::O)>,
@@ -37,12 +56,13 @@ impl<S: ActorState> Actor<S> {
     pub fn new(
         state: S,
         control_rx: mpsc::Receiver<ControlSignal>,
-        health_tx: broadcast::Sender<Report>,
+        health_tx: broadcast::Sender<ActorHealth>,
         data_rx: mpsc::Receiver<S::D>,
         output_tx: mpsc::Sender<(Uuid, S::O)>,
     ) -> Self {
         Self {
             id: Uuid::new_v4(),
+            lifecycle_status: LifecycleStatus::Ready,
             state,
             sig_notify: false,
             control_rx,
@@ -57,17 +77,16 @@ impl<S: ActorState> Actor<S> {
         let mut ticker = aloeplatform::time::Interval::new(interval_duration);
         ticker.set_missed_tick_behavior(aloeplatform::time::MissedTickBehavior::Skip);
 
-        let mut running = true;
-        let mut paused = false;
+        self.lifecycle_status = LifecycleStatus::Running;
 
-        while running {
+        while self.lifecycle_status == LifecycleStatus::Paused || self.lifecycle_status == LifecycleStatus::Running {
             tokio::select! {
                 // 1. Handle Signals
                 Some(sig) = self.control_rx.recv() => {
                     match sig {
-                        ControlSignal::Stop => running = false,
-                        ControlSignal::Pause => paused = true,
-                        ControlSignal::Resume => paused = false,
+                        ControlSignal::Stop => { self.lifecycle_status = LifecycleStatus::Ready }
+                        ControlSignal::Pause => { self.lifecycle_status = LifecycleStatus::Paused }
+                        ControlSignal::Resume => { self.lifecycle_status = LifecycleStatus::Running }
                         _ => {}
                     }
                 
@@ -79,7 +98,7 @@ impl<S: ActorState> Actor<S> {
 
                 _ = ticker.tick() => {
 
-                    if paused { continue; }
+                    if self.lifecycle_status == LifecycleStatus::Paused { continue; }
                     
                     // 2. The Loop
                     let start = aloeplatform::Instant::now();
@@ -87,18 +106,20 @@ impl<S: ActorState> Actor<S> {
                     while let Ok(data) = self.data_rx.try_recv() {
                         if let Err(e) = self.state.on_data(data).await {
                             log::error!("[{}] Data Error: {:?}", self.id, e);
-                            running = false;
+                            // TODO: Transition to NotReady
+                            self.lifecycle_status = LifecycleStatus::Ready;
                         }
                     }
 
                     // Run Logic
                     match self.state.on_tick().await {
                         Ok(should_continue) => {
-                            if !should_continue { running = false; }
+                            if !should_continue { self.lifecycle_status = LifecycleStatus::Ready; }
                         }
                         Err(e) => {
                             log::error!("[{}] Crashed: {:?}", self.id, e);
-                            running = false;
+                            // TODO: Transition to NotReady
+                            self.lifecycle_status = LifecycleStatus::Ready;
                         }
                     }
                     // Drain output from state and forward tagged with our ID
@@ -106,21 +127,21 @@ impl<S: ActorState> Actor<S> {
                         let _ = self.output_tx.send((self.id, item)).await;
                     }
 
-                    // Measure Health & Report
+                    // Measure Health & ActorHealth
                     let elapsed = start.elapsed();
-                    let report = self.measure_health(elapsed, interval_duration);
-                    let _ = self.health_tx.send(report);
+                    let actor_health = self.measure_health(elapsed, interval_duration);
+                    let _ = self.health_tx.send(actor_health);
                 }
             }
         }
     }
 
-    fn measure_health(&self, elapsed: Duration, interval: Duration) -> Report {
+    fn measure_health(&self, elapsed: Duration, interval: Duration) -> ActorHealth {
         let saturation = elapsed.as_secs_f64() / interval.as_secs_f64();
-        Report {
-            actor_id: self.id,
+        ActorHealth {
+            actor_id: self.id.to_string(),
             saturation,
-            is_alive: true,
+            lifecycle_status: self.lifecycle_status as i32,
             last_tick_ms: elapsed.as_millis() as u64,
         }
     }
