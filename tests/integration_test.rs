@@ -4,11 +4,11 @@ mod common;
 use common::{async_test, test};
 
 use aloeproc::actor::{ActorState, Orchestrator};
-use aloeproc::ipc::{ProcData, ProcOutput, NoOutput};
-use ego2_proto::aloeproc::{ControlSignal, OrchestrationStrategy, OrchestrationType};
+use aloeproc::ipc::{NoOutput, ProcData, ProcOutput};
 use async_trait::async_trait;
-use tokio::sync::mpsc;
+use ego2_proto::aloeproc::{ControlSignal, OrchestrationStrategy, OrchestrationType};
 use std::time::Duration;
+use tokio::sync::mpsc;
 use uuid::Uuid;
 
 // 1. Define the Data Packet
@@ -29,7 +29,7 @@ impl ActorState for EchoState {
     type O = NoOutput;
 
     fn interval(&self) -> Duration {
-        Duration::from_millis(10) 
+        Duration::from_millis(10)
     }
 
     async fn on_tick(&mut self) -> anyhow::Result<bool> {
@@ -44,7 +44,7 @@ impl ActorState for EchoState {
     async fn on_data(&mut self, data: Self::D) -> anyhow::Result<()> {
         if data.0 == "CRASH" {
             // WASI FRIENDLY "CRASH":
-            // We return an error, which causes the Actor loop 
+            // We return an error, which causes the Actor loop
             // (in actor.rs) to log the error and break running = false.
             // This stops the actor naturally without aborting the process.
             return Err(anyhow::anyhow!("Simulated Crash"));
@@ -53,7 +53,6 @@ impl ActorState for EchoState {
         Ok(())
     }
 }
-
 
 #[async_test]
 async fn test_actor_communication() {
@@ -68,19 +67,19 @@ async fn test_actor_communication() {
     let id = orch.spawn(state);
 
     // Get the handle from the Orchestrator (Assuming you have a getter or pub access)
-    // For this test, we can use the `send_signal` or broadcast, 
+    // For this test, we can use the `send_signal` or broadcast,
     // but typically you'd expose a way to get the handle.
     // Let's assume we added `pub fn get_handle(&self, id: Uuid) -> Option<&ActorHandle<S::D>>`
     // OR we just use the Orchestrator's methods if they exist.
-    
-    // NOTE: Since your Orchestrator code didn't have a `get_handle` method, 
-    // we will simulate the handle usage or just assume we can add one. 
+
+    // NOTE: Since your Orchestrator code didn't have a `get_handle` method,
+    // we will simulate the handle usage or just assume we can add one.
     // Let's stick to what's public:
-    
-    // We can't easily send data via Orchestrator (it only had send_signal). 
+
+    // We can't easily send data via Orchestrator (it only had send_signal).
     // *Recommendation*: Add `pub fn get_handle(...)` to Orchestrator.
     // For now, I will assume we can access `orch.handles` or similar.
-    
+
     // WORKAROUND for test: We need the handle to send Data.
     let handle = orch.get_handle(id).expect("Handle should exist");
 
@@ -93,11 +92,11 @@ async fn test_actor_communication() {
 
     // 3. Send Stop
     handle.stop().await.unwrap();
-    
+
     // 4. Verify Shutdown
     aloeplatform::sleep(Duration::from_millis(50)).await;
     orch.maintain().await;
-    
+
     // The actor should be gone from the orchestrator
     assert!(orch.get_handle(id).is_none());
 }
@@ -108,17 +107,19 @@ async fn test_orchestrator_restarts_crashed_actor() {
     let reply_tx_clone = reply_tx.clone();
 
     // 1. Setup Orchestrator with RESTART strategy and a FACTORY
-    let mut orch = Orchestrator::<EchoState>::new(OrchestrationStrategy::restart())
-        .with_factory(move || {
-            EchoState { reply_tx: reply_tx_clone.clone() }
+    let mut orch =
+        Orchestrator::<EchoState>::new(OrchestrationStrategy::restart()).with_factory(move || {
+            EchoState {
+                reply_tx: reply_tx_clone.clone(),
+            }
         });
 
     // 2. Spawn initial actor
     let initial_state = EchoState { reply_tx };
     let old_id = orch.spawn(initial_state);
-    
+
     let handle = orch.get_handle(old_id).unwrap();
-    
+
     // 3. Verify it's alive
     handle.notify(TestMsg("Alive?".to_string())).await.unwrap();
     assert_eq!(reply_rx.recv().await.unwrap(), "ECHO: Alive?");
@@ -135,19 +136,21 @@ async fn test_orchestrator_restarts_crashed_actor() {
     // This should see the finished JoinHandle and run the factory
     orch.maintain().await;
 
-
     aloeplatform::sleep(Duration::from_millis(150)).await;
 
     // 7. Verify Respawn
     // We can't ask for `old_id` anymore. We need to find the NEW id.
     // (Assuming Orchestrator has a way to list IDs or we just grab the only one)
     let new_id = *orch.handles.keys().next().unwrap();
-    
+
     assert_ne!(old_id, new_id, "The spawned actor should have a NEW UUID");
 
     // 8. Verify the new guy works
     let new_handle = orch.get_handle(new_id).unwrap();
-    new_handle.notify(TestMsg("I am back".to_string())).await.unwrap();
-    
+    new_handle
+        .notify(TestMsg("I am back".to_string()))
+        .await
+        .unwrap();
+
     assert_eq!(reply_rx.recv().await.unwrap(), "ECHO: I am back");
 }

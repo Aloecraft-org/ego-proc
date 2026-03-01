@@ -1,7 +1,7 @@
 use crate::ipc::ProcData;
 
 use ego2_proto::aloeproc::{ActorHealth, ControlSignal};
-use tokio::sync::{mpsc, broadcast};
+use tokio::sync::{broadcast, mpsc};
 
 #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 pub trait PlatformSendSync: Send + Sync {}
@@ -22,9 +22,17 @@ pub struct ActorHandle<D: Clone + PlatformSendSync> {
     pub data_tx: mpsc::Sender<D>,
 }
 
-impl<D: Clone+ PlatformSendSync> ActorHandle<D> {
-    pub fn new(control_tx: mpsc::Sender<ControlSignal>, health_tx: broadcast::Sender<ActorHealth>, data_tx: mpsc::Sender<D>) -> Self {
-        Self { health_tx, control_tx, data_tx }
+impl<D: Clone + PlatformSendSync> ActorHandle<D> {
+    pub fn new(
+        control_tx: mpsc::Sender<ControlSignal>,
+        health_tx: broadcast::Sender<ActorHealth>,
+        data_tx: mpsc::Sender<D>,
+    ) -> Self {
+        Self {
+            health_tx,
+            control_tx,
+            data_tx,
+        }
     }
     pub fn subscribe(&self) -> broadcast::Receiver<ActorHealth> {
         self.health_tx.subscribe()

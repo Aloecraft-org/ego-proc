@@ -4,9 +4,11 @@ mod common;
 use common::{async_test, test};
 
 use aloeproc::actor::{Actor, ActorState};
-use aloeproc::ipc::{ProcData, ProcOutput, NoOutput};
-use ego2_proto::aloeproc::{ControlSignal, OrchestrationStrategy, OrchestrationType, ActorHealth, LifecycleStatus};
+use aloeproc::ipc::{NoOutput, ProcData, ProcOutput};
 use async_trait::async_trait;
+use ego2_proto::aloeproc::{
+    ActorHealth, ControlSignal, LifecycleStatus, OrchestrationStrategy, OrchestrationType,
+};
 use std::time::Duration;
 use tokio::sync::{broadcast, mpsc};
 use uuid::Uuid;
@@ -91,7 +93,8 @@ impl ActorState for TestActor {
 
     async fn on_data(&mut self, data: Self::D) -> anyhow::Result<()> {
         self.received_data.push(data.0.clone());
-        self.output_buffer.push(TestOutput(format!("ECHO: {}", data.0)));
+        self.output_buffer
+            .push(TestOutput(format!("ECHO: {}", data.0)));
         Ok(())
     }
 
@@ -140,8 +143,14 @@ async fn test_actor_runs_and_ticks() {
     assert!(tick >= 1);
 
     // Health report should arrive
-    let report = health_rx.recv().await.expect("Should receive health report");
-    assert_eq!(LifecycleStatus::from_i32(report.lifecycle_status), Some(LifecycleStatus::Running));
+    let report = health_rx
+        .recv()
+        .await
+        .expect("Should receive health report");
+    assert_eq!(
+        LifecycleStatus::from_i32(report.lifecycle_status),
+        Some(LifecycleStatus::Running)
+    );
     assert!(report.saturation >= 0.0);
 
     // Clean up

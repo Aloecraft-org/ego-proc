@@ -1,7 +1,7 @@
-mod orchestrator;
 mod actor;
 mod host;
+mod orchestrator;
 
-pub use orchestrator::Orchestrator;
 pub use actor::{Actor, ActorState};
 pub use host::HostController;
+pub use orchestrator::Orchestrator;

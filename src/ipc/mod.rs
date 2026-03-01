@@ -1,5 +1,5 @@
-pub mod signal;
 pub mod handle;
+pub mod signal;
 
 pub use handle::ActorHandle;
-pub use signal::{ProcData, ProcOutput, NoOutput};
+pub use signal::{NoOutput, ProcData, ProcOutput};

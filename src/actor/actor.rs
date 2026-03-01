@@ -1,9 +1,9 @@
 use crate::ipc::{ProcData, ProcOutput};
-use ego2_proto::aloeproc::{ControlSignal, ActorHealth, LifecycleStatus};
-use tokio::sync::{broadcast, mpsc};
 use async_trait::async_trait;
-use uuid::Uuid;
+use ego2_proto::aloeproc::{ActorHealth, ControlSignal, LifecycleStatus};
 use std::time::Duration;
+use tokio::sync::{broadcast, mpsc};
+use uuid::Uuid;
 
 #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 pub trait PlatformSendSync: Send + Sync {}
@@ -15,7 +15,10 @@ pub trait PlatformSendSync {}
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 impl<T: ?Sized> PlatformSendSync for T {}
 
-#[cfg_attr(not(all(target_arch = "wasm32", target_os = "unknown")), async_trait::async_trait)]
+#[cfg_attr(
+    not(all(target_arch = "wasm32", target_os = "unknown")),
+    async_trait::async_trait
+)]
 #[cfg_attr(all(target_arch = "wasm32", target_os = "unknown"), async_trait::async_trait(?Send))]
 pub trait ActorState: PlatformSendSync {
     #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
@@ -79,7 +82,9 @@ impl<S: ActorState> Actor<S> {
 
         self.lifecycle_status = LifecycleStatus::Running;
 
-        while self.lifecycle_status == LifecycleStatus::Paused || self.lifecycle_status == LifecycleStatus::Running {
+        while self.lifecycle_status == LifecycleStatus::Paused
+            || self.lifecycle_status == LifecycleStatus::Running
+        {
             tokio::select! {
                 // 1. Handle Signals
                 Some(sig) = self.control_rx.recv() => {
@@ -89,7 +94,7 @@ impl<S: ActorState> Actor<S> {
                         ControlSignal::Resume => { self.lifecycle_status = LifecycleStatus::Running }
                         _ => {}
                     }
-                
+
                     // Still let the state react if it wants to
                     if let Err(e) = self.state.on_signal(sig).await {
                         log::error!("[{}] Signal Error: {:?}", self.id, e);
@@ -99,10 +104,10 @@ impl<S: ActorState> Actor<S> {
                 _ = ticker.tick() => {
 
                     if self.lifecycle_status == LifecycleStatus::Paused { continue; }
-                    
+
                     // 2. The Loop
                     let start = aloeplatform::Instant::now();
-                    
+
                     while let Ok(data) = self.data_rx.try_recv() {
                         if let Err(e) = self.state.on_data(data).await {
                             log::error!("[{}] Data Error: {:?}", self.id, e);
@@ -146,4 +151,3 @@ impl<S: ActorState> Actor<S> {
         }
     }
 }
-

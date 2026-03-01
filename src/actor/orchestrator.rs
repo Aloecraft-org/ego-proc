@@ -127,7 +127,9 @@ impl<S: ActorState> Orchestrator<S> {
             match OrchestrationType::from_i32(self.strategy.strategy_type) {
                 // NEW: Handle the limit
                 Some(OrchestrationType::Restart) => {
-                    if self.current_restarts < self.strategy.restart_limit || self.strategy.restart_limit == -1 {
+                    if self.current_restarts < self.strategy.restart_limit
+                        || self.strategy.restart_limit == -1
+                    {
                         self.current_restarts += 1;
                         log::warn!(
                             "Actor {} died. Restarting ({}/{})",
@@ -158,7 +160,7 @@ impl<S: ActorState> Orchestrator<S> {
                     // In a real app, you might set a flag here to kill the Controller
                     // e.g., self.status = Status::Error;
                 }
-                _ => { }
+                _ => {}
             }
         }
     }

@@ -4,11 +4,11 @@ mod common;
 use common::{async_test, test};
 
 use aloeproc::actor::{ActorState, Orchestrator};
-use aloeproc::ipc::{ProcData, ProcOutput, NoOutput};
-use ego2_proto::aloeproc::{ControlSignal, OrchestrationStrategy, OrchestrationType};
+use aloeproc::ipc::{NoOutput, ProcData, ProcOutput};
 use async_trait::async_trait;
-use std::sync::atomic::{AtomicU32, Ordering};
+use ego2_proto::aloeproc::{ControlSignal, OrchestrationStrategy, OrchestrationType};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
 // --- Configurable test actor for Orchestrator tests ---
@@ -109,7 +109,10 @@ async fn test_death_detection() {
 
     // Maintain should clean it up (OneShot = no restart)
     orch.maintain().await;
-    assert!(orch.get_handle(id).is_none(), "Dead actor should be removed");
+    assert!(
+        orch.get_handle(id).is_none(),
+        "Dead actor should be removed"
+    );
 }
 
 #[async_test]
@@ -156,7 +159,10 @@ async fn test_restart_limit() {
     aloeplatform::sleep(Duration::from_millis(50)).await;
     orch.maintain().await;
 
-    assert!(orch.handles.is_empty(), "Should have given up after restart limit");
+    assert!(
+        orch.handles.is_empty(),
+        "Should have given up after restart limit"
+    );
 }
 
 #[async_test]
@@ -229,7 +235,10 @@ async fn test_output_collection() {
         outputs.push(output);
     }
 
-    assert!(!outputs.is_empty(), "Should have received output from worker");
+    assert!(
+        !outputs.is_empty(),
+        "Should have received output from worker"
+    );
     // First output should be OrcOutput(1)
     assert_eq!(outputs[0], OrcOutput(1));
 

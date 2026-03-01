@@ -5,12 +5,12 @@ use common::{async_test, test};
 
 use aloeproc::actor::{ActorState, Orchestrator};
 
-use aloeproc::ipc::{ProcData, ProcOutput, NoOutput};
-use ego2_proto::aloeproc::{ControlSignal, OrchestrationStrategy, OrchestrationType};
+use aloeproc::ipc::{NoOutput, ProcData, ProcOutput};
 use async_trait::async_trait;
+use ego2_proto::aloeproc::{ControlSignal, OrchestrationStrategy, OrchestrationType};
 
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
 // --- Worker ---
@@ -95,8 +95,8 @@ struct TestManager {
 
 impl TestManager {
     fn new() -> Self {
-        let workers = Orchestrator::new(OrchestrationStrategy::restart())
-            .with_factory(|| Worker::new(0));
+        let workers =
+            Orchestrator::new(OrchestrationStrategy::restart()).with_factory(|| Worker::new(0));
         Self {
             workers,
             received_outputs: Vec::new(),
