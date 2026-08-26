@@ -3,11 +3,11 @@
 mod common;
 use common::{async_test, test};
 
-use aloeproc::actor::{ActorState, Orchestrator};
+use ego_proc::actor::{ActorState, Orchestrator};
 
-use aloeproc::ipc::{NoOutput, ProcData, ProcOutput};
+use ego_proc::ipc::{NoOutput, ProcData, ProcOutput};
 use async_trait::async_trait;
-use ego2_proto::aloeproc::{ControlSignal, OrchestrationStrategy, OrchestrationType};
+use ego_proc::{ControlSignal, OrchestrationStrategy, OrchestrationType};
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -148,11 +148,11 @@ async fn test_manager_pattern() {
     let mgr_id = orch.spawn(mgr);
 
     // Let the system run — manager ticks, workers tick, output flows
-    aloeplatform::sleep(Duration::from_millis(100)).await;
+    ego_platform::sleep(Duration::from_millis(100)).await;
 
     // Stop everything
     orch.broadcast(ControlSignal::Stop).await;
-    aloeplatform::sleep(Duration::from_millis(50)).await;
+    ego_platform::sleep(Duration::from_millis(50)).await;
     orch.maintain().await;
 
     assert!(orch.handles.is_empty(), "Manager should have stopped");
@@ -169,11 +169,11 @@ async fn test_kill_worker_manager_restarts() {
     let _mgr_id = orch.spawn(mgr);
 
     // Wait for worker to crash and manager to restart it
-    aloeplatform::sleep(Duration::from_millis(100)).await;
+    ego_platform::sleep(Duration::from_millis(100)).await;
 
     // Stop and clean up
     orch.broadcast(ControlSignal::Stop).await;
-    aloeplatform::sleep(Duration::from_millis(50)).await;
+    ego_platform::sleep(Duration::from_millis(50)).await;
     orch.maintain().await;
 }
 
@@ -187,11 +187,11 @@ async fn test_graceful_shutdown_tree() {
     orch.spawn(mgr);
 
     // Let it run
-    aloeplatform::sleep(Duration::from_millis(50)).await;
+    ego_platform::sleep(Duration::from_millis(50)).await;
 
     // Stop propagates: orch -> manager -> workers
     orch.broadcast(ControlSignal::Stop).await;
-    aloeplatform::sleep(Duration::from_millis(100)).await;
+    ego_platform::sleep(Duration::from_millis(100)).await;
     orch.maintain().await;
 
     assert!(orch.handles.is_empty(), "Everything should be stopped");

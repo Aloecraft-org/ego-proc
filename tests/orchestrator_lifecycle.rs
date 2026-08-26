@@ -3,10 +3,10 @@
 mod common;
 use common::{async_test, test};
 
-use aloeproc::actor::{ActorState, Orchestrator};
-use aloeproc::ipc::{NoOutput, ProcData, ProcOutput};
+use ego_proc::actor::{ActorState, Orchestrator};
+use ego_proc::ipc::{NoOutput, ProcData, ProcOutput};
 use async_trait::async_trait;
-use ego2_proto::aloeproc::{ControlSignal, OrchestrationStrategy, OrchestrationType};
+use ego_proc::{ControlSignal, OrchestrationStrategy, OrchestrationType};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
@@ -105,7 +105,7 @@ async fn test_death_detection() {
     let id = orch.spawn(OrcActor::crash_after(1, counter.clone()));
 
     // Wait for crash
-    aloeplatform::sleep(Duration::from_millis(50)).await;
+    ego_platform::sleep(Duration::from_millis(50)).await;
 
     // Maintain should clean it up (OneShot = no restart)
     orch.maintain().await;
@@ -126,7 +126,7 @@ async fn test_restart_strategy() {
     let old_id = orch.spawn(OrcActor::crash_after(1, counter.clone()));
 
     // Wait for crash
-    aloeplatform::sleep(Duration::from_millis(50)).await;
+    ego_platform::sleep(Duration::from_millis(50)).await;
     orch.maintain().await;
 
     // Old ID should be gone, but a new actor should exist
@@ -149,14 +149,14 @@ async fn test_restart_limit() {
 
     // Cycle through restarts: die -> restart (1), die -> restart (2), die -> give up
     for _ in 0..3 {
-        aloeplatform::sleep(Duration::from_millis(50)).await;
+        ego_platform::sleep(Duration::from_millis(50)).await;
         orch.maintain().await;
     }
 
     // After 2 restarts, the 3rd death should not restart
     // Total spawns: 1 initial + 2 restarts = 3
     // But after the 3rd crash + maintain, handles should be empty
-    aloeplatform::sleep(Duration::from_millis(50)).await;
+    ego_platform::sleep(Duration::from_millis(50)).await;
     orch.maintain().await;
 
     assert!(
@@ -172,7 +172,7 @@ async fn test_oneshot_no_restart() {
 
     orch.spawn(OrcActor::crash_after(1, counter.clone()));
 
-    aloeplatform::sleep(Duration::from_millis(50)).await;
+    ego_platform::sleep(Duration::from_millis(50)).await;
     orch.maintain().await;
 
     assert!(orch.handles.is_empty(), "OneShot should not restart");
@@ -186,13 +186,13 @@ async fn test_broadcast_stop() {
     let id1 = orch.spawn(OrcActor::normal(counter.clone()));
     let id2 = orch.spawn(OrcActor::normal(counter.clone()));
 
-    aloeplatform::sleep(Duration::from_millis(30)).await;
+    ego_platform::sleep(Duration::from_millis(30)).await;
     assert!(orch.get_handle(id1).is_some());
     assert!(orch.get_handle(id2).is_some());
 
     // Broadcast stop
     orch.broadcast(ControlSignal::Stop).await;
-    aloeplatform::sleep(Duration::from_millis(50)).await;
+    ego_platform::sleep(Duration::from_millis(50)).await;
     orch.maintain().await;
 
     assert!(orch.handles.is_empty(), "All actors should be stopped");
@@ -226,7 +226,7 @@ async fn test_output_collection() {
     let id = orch.spawn(OrcActor::normal(counter.clone()));
 
     // Wait for a few ticks to produce output
-    aloeplatform::sleep(Duration::from_millis(60)).await;
+    ego_platform::sleep(Duration::from_millis(60)).await;
 
     // Drain output
     let mut outputs = Vec::new();

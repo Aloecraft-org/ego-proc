@@ -1,0 +1,45 @@
+syntax = "proto3";
+
+package ego2_proto.ego_proc;
+
+enum ActorType {
+    Worker = 0;
+    Manager = 1;
+    Controller = 2;
+    Host = 3;
+}
+
+enum LifecycleStatus {
+    NotReady = 0;
+    Ready = 1;
+    Running = 2;
+    Paused = 3;
+    Complete = 4;
+    Error = 5;
+}
+
+enum OrchestrationType {
+    Restart = 0;
+    OneShot = 2;
+    Escalate = 3;
+}
+
+enum ControlSignal {
+    Start = 0;
+    Stop = 1;
+    Pause = 2;
+    Resume = 3;
+    Notify = 4;
+}
+
+message OrchestrationStrategy {
+    OrchestrationType strategy_type = 1;
+    int32 restart_limit = 2;
+}
+
+message ActorHealth {
+    double saturation = 1;
+    uint64 last_tick_ms = 2;
+    LifecycleStatus lifecycle_status = 3;
+    string actor_id = 4;
+}

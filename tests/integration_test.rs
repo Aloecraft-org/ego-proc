@@ -3,10 +3,10 @@
 mod common;
 use common::{async_test, test};
 
-use aloeproc::actor::{ActorState, Orchestrator};
-use aloeproc::ipc::{NoOutput, ProcData, ProcOutput};
+use ego_proc::actor::{ActorState, Orchestrator};
+use ego_proc::ipc::{NoOutput, ProcData, ProcOutput};
 use async_trait::async_trait;
-use ego2_proto::aloeproc::{ControlSignal, OrchestrationStrategy, OrchestrationType};
+use ego_proc::{ControlSignal, OrchestrationStrategy, OrchestrationType};
 use std::time::Duration;
 use tokio::sync::mpsc;
 use uuid::Uuid;
@@ -94,7 +94,7 @@ async fn test_actor_communication() {
     handle.stop().await.unwrap();
 
     // 4. Verify Shutdown
-    aloeplatform::sleep(Duration::from_millis(50)).await;
+    ego_platform::sleep(Duration::from_millis(50)).await;
     orch.maintain().await;
 
     // The actor should be gone from the orchestrator
@@ -130,13 +130,13 @@ async fn test_orchestrator_restarts_crashed_actor() {
     let _ = handle.notify(TestMsg("CRASH".to_string())).await;
 
     // 5. Wait for death
-    aloeplatform::sleep(Duration::from_millis(150)).await;
+    ego_platform::sleep(Duration::from_millis(150)).await;
 
     // 6. Run Maintenance
     // This should see the finished JoinHandle and run the factory
     orch.maintain().await;
 
-    aloeplatform::sleep(Duration::from_millis(150)).await;
+    ego_platform::sleep(Duration::from_millis(150)).await;
 
     // 7. Verify Respawn
     // We can't ask for `old_id` anymore. We need to find the NEW id.

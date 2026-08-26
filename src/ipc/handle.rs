@@ -1,6 +1,7 @@
 use crate::ipc::ProcData;
+use crate::{ActorHealth, ControlSignal};
+use crate::ControlSignal::Resume;
 
-use ego2_proto::aloeproc::{ActorHealth, ControlSignal};
 use tokio::sync::{broadcast, mpsc};
 
 #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]

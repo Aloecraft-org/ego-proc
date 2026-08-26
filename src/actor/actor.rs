@@ -1,6 +1,6 @@
 use crate::ipc::{ProcData, ProcOutput};
+use crate::{ActorHealth, ControlSignal, LifecycleStatus};
 use async_trait::async_trait;
-use ego2_proto::aloeproc::{ActorHealth, ControlSignal, LifecycleStatus};
 use std::time::Duration;
 use tokio::sync::{broadcast, mpsc};
 use uuid::Uuid;
@@ -77,8 +77,8 @@ impl<S: ActorState> Actor<S> {
 
     pub async fn run(mut self) {
         let interval_duration = self.state.interval();
-        let mut ticker = aloeplatform::time::Interval::new(interval_duration);
-        ticker.set_missed_tick_behavior(aloeplatform::time::MissedTickBehavior::Skip);
+        let mut ticker = ego_platform::time::Interval::new(interval_duration);
+        ticker.set_missed_tick_behavior(ego_platform::time::MissedTickBehavior::Skip);
 
         self.lifecycle_status = LifecycleStatus::Running;
 
@@ -106,7 +106,7 @@ impl<S: ActorState> Actor<S> {
                     if self.lifecycle_status == LifecycleStatus::Paused { continue; }
 
                     // 2. The Loop
-                    let start = aloeplatform::Instant::now();
+                    let start = ego_platform::Instant::now();
 
                     while let Ok(data) = self.data_rx.try_recv() {
                         if let Err(e) = self.state.on_data(data).await {

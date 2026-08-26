@@ -1,6 +1,6 @@
 use crate::actor::{Actor, ActorState};
 use crate::ipc::{ActorHandle, ProcData, ProcOutput};
-use ego2_proto::aloeproc::{ActorHealth, ControlSignal, OrchestrationStrategy, OrchestrationType};
+use crate::{ActorHealth, ControlSignal, OrchestrationStrategy, OrchestrationType};
 
 use std::collections::HashMap;
 use tokio::sync::{broadcast, mpsc};
@@ -14,7 +14,7 @@ pub struct Orchestrator<S: ActorState + 'static> {
     strategy: OrchestrationStrategy,
 
     /// Active tasks (so we can detect death).
-    tasks: HashMap<Uuid, aloeplatform::TaskHandle<()>>,
+    tasks: HashMap<Uuid, ego_platform::TaskHandle<()>>,
 
     /// Control channels (so we can send signals).
     pub handles: HashMap<Uuid, ActorHandle<S::D>>,
@@ -71,7 +71,7 @@ impl<S: ActorState> Orchestrator<S> {
         let actor = Actor::<S>::new(state, control_rx, health_tx.clone(), data_rx, output_tx);
         let id = actor.id;
         // Spawn the Task
-        let join_handle = aloeplatform::spawn(async move {
+        let join_handle = ego_platform::spawn(async move {
             actor.run().await;
         });
         let actor_handle = ActorHandle::<S::D> {
@@ -211,7 +211,7 @@ impl<S: ActorState> Orchestrator<S> {
     /// Broadcast `Stop` to all managed actors. Returns the number of actors signaled.
     ///
     /// This is async because `control_tx.send()` is async. For fire-and-forget
-    /// shutdown from sync context, wrap in `aloeplatform::spawn`.
+    /// shutdown from sync context, wrap in `ego_platform::spawn`.
     pub async fn shutdown(&self) -> usize {
         let mut count = 0;
         for handle in self.handles.values() {

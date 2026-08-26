@@ -3,10 +3,10 @@
 mod common;
 use common::{async_test, test};
 
-use aloeproc::actor::{Actor, ActorState};
-use aloeproc::ipc::{NoOutput, ProcData, ProcOutput};
+use ego_proc::actor::{Actor, ActorState};
+use ego_proc::ipc::{NoOutput, ProcData, ProcOutput};
 use async_trait::async_trait;
-use ego2_proto::aloeproc::{
+use ego_proc::{
     ActorHealth, ControlSignal, LifecycleStatus, OrchestrationStrategy, OrchestrationType,
 };
 use std::time::Duration;
@@ -113,7 +113,7 @@ fn spawn_test_actor(
     mpsc::Sender<TestData>,
     broadcast::Sender<ActorHealth>,
     mpsc::Receiver<(Uuid, TestOutput)>,
-    aloeplatform::spawn::TaskHandle<()>,
+    ego_platform::spawn::TaskHandle<()>,
 ) {
     let (control_tx, control_rx) = mpsc::channel(8);
     let (data_tx, data_rx) = mpsc::channel(8);
@@ -122,7 +122,7 @@ fn spawn_test_actor(
 
     let actor = Actor::new(state, control_rx, health_tx.clone(), data_rx, output_tx);
     let id = actor.id;
-    let handle = aloeplatform::spawn(async move { actor.run().await });
+    let handle = ego_platform::spawn(async move { actor.run().await });
 
     (id, control_tx, data_tx, health_tx, output_rx, handle)
 }
@@ -155,7 +155,7 @@ async fn test_actor_runs_and_ticks() {
 
     // Clean up
     drop(_ctl); // drop control_tx to close the channel, actor will exit
-    let _ = aloeplatform::time::timeout(Duration::from_millis(200), handle).await;
+    let _ = ego_platform::time::timeout(Duration::from_millis(200), handle).await;
 }
 
 #[async_test]
@@ -164,13 +164,13 @@ async fn test_actor_stops_on_signal() {
     let (_id, ctl, _data, _health, _out, handle) = spawn_test_actor(state);
 
     // Let it tick once
-    aloeplatform::sleep(Duration::from_millis(30)).await;
+    ego_platform::sleep(Duration::from_millis(30)).await;
 
     // Send stop
     ctl.send(ControlSignal::Stop).await.unwrap();
 
     // Actor task should complete
-    let result = aloeplatform::time::timeout(Duration::from_millis(200), handle).await;
+    let result = ego_platform::time::timeout(Duration::from_millis(200), handle).await;
     assert!(result.is_ok(), "Actor should have stopped");
 }
 
@@ -185,25 +185,25 @@ async fn test_actor_pause_resume() {
 
     // Pause
     ctl.send(ControlSignal::Pause).await.unwrap();
-    aloeplatform::sleep(Duration::from_millis(50)).await;
+    ego_platform::sleep(Duration::from_millis(50)).await;
 
     // Drain any ticks that arrived before pause took effect
     while tick_rx.try_recv().is_ok() {}
 
     // No ticks should arrive while paused
-    let result = aloeplatform::time::timeout(Duration::from_millis(60), tick_rx.recv()).await;
+    let result = ego_platform::time::timeout(Duration::from_millis(60), tick_rx.recv()).await;
     assert!(result.is_err(), "Should not tick while paused");
 
     // Resume
     ctl.send(ControlSignal::Resume).await.unwrap();
 
     // Should tick again
-    let tick = aloeplatform::time::timeout(Duration::from_millis(200), tick_rx.recv()).await;
+    let tick = ego_platform::time::timeout(Duration::from_millis(200), tick_rx.recv()).await;
     assert!(tick.is_ok(), "Should tick after resume");
 
     // Clean up
     ctl.send(ControlSignal::Stop).await.unwrap();
-    let _ = aloeplatform::time::timeout(Duration::from_millis(200), handle).await;
+    let _ = ego_platform::time::timeout(Duration::from_millis(200), handle).await;
 }
 
 #[async_test]
@@ -212,7 +212,7 @@ async fn test_actor_natural_completion() {
     let (_id, _ctl, _data, _health, _out, handle) = spawn_test_actor(state);
 
     // Actor should complete after 3 ticks
-    let result = aloeplatform::time::timeout(Duration::from_millis(500), handle).await;
+    let result = ego_platform::time::timeout(Duration::from_millis(500), handle).await;
     assert!(result.is_ok(), "Actor should have completed naturally");
 }
 
@@ -222,7 +222,7 @@ async fn test_actor_crash() {
     let (_id, _ctl, _data, _health, _out, handle) = spawn_test_actor(state);
 
     // Actor should exit quickly after crashing
-    let result = aloeplatform::time::timeout(Duration::from_millis(500), handle).await;
+    let result = ego_platform::time::timeout(Duration::from_millis(500), handle).await;
     assert!(result.is_ok(), "Actor should have exited after crash");
 }
 
@@ -232,17 +232,17 @@ async fn test_actor_receives_data() {
     let (_id, ctl, data_tx, _health, _out, handle) = spawn_test_actor(state);
 
     // Let it start
-    aloeplatform::sleep(Duration::from_millis(30)).await;
+    ego_platform::sleep(Duration::from_millis(30)).await;
 
     // Send data
     data_tx.send(TestData("hello".into())).await.unwrap();
 
     // Give it time to process
-    aloeplatform::sleep(Duration::from_millis(30)).await;
+    ego_platform::sleep(Duration::from_millis(30)).await;
 
     // Clean up
     ctl.send(ControlSignal::Stop).await.unwrap();
-    let _ = aloeplatform::time::timeout(Duration::from_millis(200), handle).await;
+    let _ = ego_platform::time::timeout(Duration::from_millis(200), handle).await;
 }
 
 #[async_test]
@@ -251,13 +251,13 @@ async fn test_actor_output() {
     let (_id, ctl, data_tx, _health, mut out_rx, handle) = spawn_test_actor(state);
 
     // Let it start
-    aloeplatform::sleep(Duration::from_millis(30)).await;
+    ego_platform::sleep(Duration::from_millis(30)).await;
 
     // Send data (on_data pushes to output_buffer)
     data_tx.send(TestData("world".into())).await.unwrap();
 
     // Wait for output to be drained on next tick
-    let (actor_id, output) = aloeplatform::time::timeout(Duration::from_millis(200), out_rx.recv())
+    let (actor_id, output) = ego_platform::time::timeout(Duration::from_millis(200), out_rx.recv())
         .await
         .expect("Should receive output in time")
         .expect("Channel should not be closed");
@@ -267,5 +267,5 @@ async fn test_actor_output() {
 
     // Clean up
     ctl.send(ControlSignal::Stop).await.unwrap();
-    let _ = aloeplatform::time::timeout(Duration::from_millis(200), handle).await;
+    let _ = ego_platform::time::timeout(Duration::from_millis(200), handle).await;
 }
