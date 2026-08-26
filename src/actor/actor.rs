@@ -1,8 +1,17 @@
 use crate::ipc::PlatformSendSync;
 use crate::{ActorHealth, ControlSignal, LifecycleStatus};
 use std::time::Duration;
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::{broadcast, mpsc, oneshot};
 use uuid::Uuid;
+
+/// A request, delivered on a side channel, asking the actor to passivate:
+/// serialize its state to bytes and stop running. The actor answers with
+/// `Some(bytes)` (and then exits Dormant) or `None` if it is not at a point
+/// where its state can be captured (it keeps running).
+#[derive(Debug)]
+pub struct PassivateRequest {
+    pub reply: oneshot::Sender<Option<Vec<u8>>>,
+}
 
 #[cfg_attr(
     not(all(target_arch = "wasm32", target_os = "unknown")),
@@ -31,6 +40,21 @@ pub trait ActorState: PlatformSendSync {
     fn take_output(&mut self) -> Vec<Self::O> {
         vec![]
     }
+
+    /// A measured saturation value in `[0.0, 1.0]`, if the state can report
+    /// one (e.g. a budget spent/limit ratio from an embedded runtime).
+    /// Default: `None`, in which case the run loop falls back to its own
+    /// tick-latency estimate when reporting [`ActorHealth`].
+    fn saturation(&self) -> Option<f64> {
+        None
+    }
+
+    /// Serialize this state to bytes so the slot can go [`LifecycleStatus::Dormant`].
+    /// Return `None` if the state is not at a stop point (passivation is
+    /// refused and the actor keeps running). Default: not passivatable.
+    fn passivate(&mut self) -> Option<Vec<u8>> {
+        None
+    }
 }
 
 pub struct Actor<S: ActorState> {
@@ -42,6 +66,10 @@ pub struct Actor<S: ActorState> {
     pub control_rx: mpsc::Receiver<ControlSignal>,
     pub data_rx: mpsc::Receiver<S::D>,
     pub output_tx: mpsc::Sender<(Uuid, S::O)>,
+    /// Side channel for passivation requests. The sender half is cloned by
+    /// the Orchestrator before spawning; see [`PassivateRequest`].
+    pub passivate_tx: mpsc::Sender<PassivateRequest>,
+    pub passivate_rx: mpsc::Receiver<PassivateRequest>,
 }
 
 impl<S: ActorState> Actor<S> {
@@ -52,6 +80,7 @@ impl<S: ActorState> Actor<S> {
         data_rx: mpsc::Receiver<S::D>,
         output_tx: mpsc::Sender<(Uuid, S::O)>,
     ) -> Self {
+        let (passivate_tx, passivate_rx) = mpsc::channel(1);
         Self {
             id: Uuid::new_v4(),
             lifecycle_status: LifecycleStatus::Ready,
@@ -61,6 +90,8 @@ impl<S: ActorState> Actor<S> {
             health_tx,
             data_rx,
             output_tx,
+            passivate_tx,
+            passivate_rx,
         }
     }
 
@@ -87,6 +118,21 @@ impl<S: ActorState> Actor<S> {
                     // Still let the state react if it wants to
                     if let Err(e) = self.state.on_signal(sig).await {
                         log::error!("[{}] Signal Error: {:?}", self.id, e);
+                    }
+                }
+
+                // 1b. Handle passivation requests
+                Some(req) = self.passivate_rx.recv() => {
+                    match self.state.passivate() {
+                        Some(bytes) => {
+                            let _ = req.reply.send(Some(bytes));
+                            // Exit the loop; the slot lives on as Dormant.
+                            self.lifecycle_status = LifecycleStatus::Dormant;
+                        }
+                        None => {
+                            // Not at a stop point: refuse and keep running.
+                            let _ = req.reply.send(None);
+                        }
                     }
                 }
 
@@ -131,7 +177,12 @@ impl<S: ActorState> Actor<S> {
     }
 
     fn measure_health(&self, elapsed: Duration, interval: Duration) -> ActorHealth {
-        let saturation = elapsed.as_secs_f64() / interval.as_secs_f64();
+        // Prefer a saturation the state measures itself over our own
+        // tick-latency estimate.
+        let saturation = self
+            .state
+            .saturation()
+            .unwrap_or_else(|| elapsed.as_secs_f64() / interval.as_secs_f64());
         ActorHealth {
             actor_id: self.id.to_string(),
             saturation,

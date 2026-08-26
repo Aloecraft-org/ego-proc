@@ -1,10 +1,21 @@
-use crate::actor::{Actor, ActorState};
+use crate::actor::dormant::{
+    DormantStore, InMemoryDormantStore, PassivateError, ReactivateError, SendDataError, WakePolicy,
+};
+use crate::actor::{Actor, ActorState, PassivateRequest};
 use crate::ipc::ActorHandle;
 use crate::{ControlSignal, OrchestrationStrategy, OrchestrationType};
 
 use std::collections::HashMap;
-use tokio::sync::{broadcast, mpsc};
+use std::time::Duration;
+use tokio::sync::{broadcast, mpsc, oneshot};
 use uuid::Uuid;
+
+/// How long `passivate` waits for the actor to answer before concluding it
+/// is wedged. Generously above any sane tick interval.
+const PASSIVATE_REPLY_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// "Make one from bytes" — see [`Orchestrator::with_rehydrator`].
+type Rehydrator<S> = Box<dyn Fn(&[u8]) -> anyhow::Result<S> + Send + Sync>;
 
 /// A strictly typed manager for a specific kind of Actor.
 /// usage: `connections: Orchestrator<ConnectionState>`
@@ -33,6 +44,21 @@ pub struct Orchestrator<S: ActorState + 'static> {
     pub output_tx: mpsc::Sender<(Uuid, S::O)>,
     pub output_rx: mpsc::Receiver<(Uuid, S::O)>,
     pub current_restarts: i32,
+
+    /// Rehydrator: "make one from bytes", symmetric with `factory`.
+    /// (Optional: only needed to reactivate dormant actors.)
+    rehydrator: Option<Rehydrator<S>>,
+
+    /// Where passivated actor bytes live. In-memory by default; consumers
+    /// plug durable stores in via `with_dormant_store`.
+    dormant_store: Box<dyn DormantStore>,
+
+    /// Dormant slots this orchestrator passivated, with their wake policy.
+    /// The Uuid persists across passivate/reactivate.
+    dormant: HashMap<Uuid, WakePolicy>,
+
+    /// Passivation side channels for live actors.
+    passivate_txs: HashMap<Uuid, mpsc::Sender<PassivateRequest>>,
 }
 
 impl<S: ActorState> Orchestrator<S> {
@@ -48,6 +74,10 @@ impl<S: ActorState> Orchestrator<S> {
             output_tx,
             output_rx,
             current_restarts: 0,
+            rehydrator: None,
+            dormant_store: Box::new(InMemoryDormantStore::default()),
+            dormant: HashMap::new(),
+            passivate_txs: HashMap::new(),
         }
     }
 
@@ -60,15 +90,46 @@ impl<S: ActorState> Orchestrator<S> {
         self
     }
 
+    /// Set a rehydrator — "make one from bytes" — symmetric with
+    /// [`with_factory`](Self::with_factory). Reactivation needs only bytes
+    /// plus this function, not the original creator: a restarted
+    /// orchestrator can register the same rehydrator and thaw actors it
+    /// never spawned, as long as its store holds their bytes.
+    pub fn with_rehydrator<F>(mut self, f: F) -> Self
+    where
+        F: Fn(&[u8]) -> anyhow::Result<S> + Send + Sync + 'static,
+    {
+        self.rehydrator = Some(Box::new(f));
+        self
+    }
+
+    /// Plug in a store for passivated actor bytes (durable or otherwise).
+    /// The orchestrator owns the dormancy transition, never the
+    /// persistence policy.
+    pub fn with_dormant_store(mut self, store: impl DormantStore + 'static) -> Self {
+        self.dormant_store = Box::new(store);
+        self
+    }
+
     /// Spawn a new instance of this actor type.
     pub fn spawn(&mut self, state: S) -> Uuid {
+        self.spawn_inner(state, None)
+    }
+
+    /// Spawn, optionally reusing an existing Uuid (reactivation keeps the
+    /// slot's identity).
+    fn spawn_inner(&mut self, state: S, reuse_id: Option<Uuid>) -> Uuid {
         let (control_tx, control_rx) = mpsc::channel::<ControlSignal>(8);
         let (data_tx, data_rx) = mpsc::channel::<S::D>(8);
         let (health_tx, _) = broadcast::channel(16);
         let output_tx = self.output_tx.clone();
         // Create the Runner
-        let actor = Actor::<S>::new(state, control_rx, health_tx.clone(), data_rx, output_tx);
+        let mut actor = Actor::<S>::new(state, control_rx, health_tx.clone(), data_rx, output_tx);
+        if let Some(id) = reuse_id {
+            actor.id = id;
+        }
         let id = actor.id;
+        let passivate_tx = actor.passivate_tx.clone();
         // Spawn the Task
         let join_handle = ego_platform::spawn(async move {
             actor.run().await;
@@ -80,6 +141,7 @@ impl<S: ActorState> Orchestrator<S> {
         };
         self.tasks.insert(id, join_handle);
         self.handles.insert(id, actor_handle);
+        self.passivate_txs.insert(id, passivate_tx);
         id
     }
 
@@ -106,7 +168,8 @@ impl<S: ActorState> Orchestrator<S> {
     }
 
     pub async fn maintain(&mut self) {
-        // 1. Find dead tasks
+        // 1. Find dead tasks. Dormant slots are alive-but-swapped: they have
+        //    no task here, so they are never treated as deaths or restarted.
         let dead_ids: Vec<Uuid> = self
             .tasks
             .iter()
@@ -119,6 +182,7 @@ impl<S: ActorState> Orchestrator<S> {
             // Clean up the dead actor's remains
             self.tasks.remove(&id);
             self.handles.remove(&id);
+            self.passivate_txs.remove(&id);
 
             // Preserve the domain name so we can remap after restart
             let domain_name = self.reverse_domain_map.remove(&id);
@@ -204,6 +268,102 @@ impl<S: ActorState> Orchestrator<S> {
     /// Awaits until an actor produces output or all senders are dropped.
     pub async fn recv_output_async(&mut self) -> Option<(Uuid, S::O)> {
         self.output_rx.recv().await
+    }
+
+    /// Ask a live actor to passivate: capture its state as bytes, stop its
+    /// task, and mark the slot dormant with the given wake policy. The Uuid
+    /// persists across the transition. Refuses (and the actor keeps
+    /// running) if the actor is not at a stop point.
+    pub async fn passivate(&mut self, id: Uuid, wake: WakePolicy) -> Result<(), PassivateError> {
+        let passivate_tx = self
+            .passivate_txs
+            .get(&id)
+            .ok_or(PassivateError::UnknownActor(id))?;
+
+        let (reply_tx, reply_rx) = oneshot::channel();
+        passivate_tx
+            .send(PassivateRequest { reply: reply_tx })
+            .await
+            .map_err(|_| PassivateError::UnknownActor(id))?;
+
+        let bytes = match ego_platform::timeout(PASSIVATE_REPLY_TIMEOUT, reply_rx).await {
+            Ok(Ok(Some(bytes))) => bytes,
+            Ok(Ok(None)) => return Err(PassivateError::NotAtStopPoint(id)),
+            // Reply channel dropped or no answer in time: the actor is
+            // wedged or already exiting; leave the slot as-is.
+            Ok(Err(_)) | Err(_) => return Err(PassivateError::NoResponse(id)),
+        };
+
+        // The actor has answered and is exiting Dormant; release the slot's
+        // live resources.
+        self.tasks.remove(&id);
+        self.handles.remove(&id);
+        self.passivate_txs.remove(&id);
+
+        if let Err(source) = self.dormant_store.put(id, bytes.clone()) {
+            return Err(PassivateError::Store { source, bytes });
+        }
+        self.dormant.insert(id, wake);
+        Ok(())
+    }
+
+    /// Rehydrate a dormant actor from stored bytes and resume it under the
+    /// SAME Uuid. Also thaws slots this orchestrator never spawned, as long
+    /// as the store holds their bytes and a rehydrator is registered.
+    pub fn reactivate(&mut self, id: Uuid) -> Result<Uuid, ReactivateError> {
+        let bytes = self
+            .dormant_store
+            .get(&id)
+            .map_err(ReactivateError::Store)?
+            .ok_or(ReactivateError::UnknownActor(id))?;
+        let rehydrator = self
+            .rehydrator
+            .as_ref()
+            .ok_or(ReactivateError::NoRehydrator)?;
+        let state = (rehydrator)(&bytes).map_err(ReactivateError::Rehydrate)?;
+
+        let new_id = self.spawn_inner(state, Some(id));
+        self.dormant.remove(&id);
+        let _ = self.dormant_store.del(&id);
+        Ok(new_id)
+    }
+
+    /// Send data to an actor by id. For a live actor this is a plain
+    /// channel send. For a dormant slot the wake policy decides:
+    /// rehydrate-then-deliver, or a typed refusal. Never silent.
+    pub async fn send_data(&mut self, id: Uuid, data: S::D) -> Result<(), SendDataError> {
+        if !self.handles.contains_key(&id) {
+            let known_dormant = self.dormant.contains_key(&id);
+            let stored = matches!(self.dormant_store.get(&id), Ok(Some(_)));
+            if !known_dormant && !stored {
+                return Err(SendDataError::UnknownActor(id));
+            }
+            match self.dormant.get(&id).copied().unwrap_or_default() {
+                WakePolicy::WakeOnData => {
+                    self.reactivate(id)?;
+                }
+                WakePolicy::Refuse => return Err(SendDataError::DormantRefused(id)),
+            }
+        }
+        let handle = self
+            .handles
+            .get(&id)
+            .ok_or(SendDataError::UnknownActor(id))?;
+        handle
+            .data_tx
+            .send(data)
+            .await
+            .map_err(|_| SendDataError::ChannelClosed(id))
+    }
+
+    /// True if this slot is dormant (passivated, task stopped, Uuid alive).
+    pub fn is_dormant(&self, id: &Uuid) -> bool {
+        self.dormant.contains_key(id)
+    }
+
+    /// Ids of all dormant slots this orchestrator is tracking.
+    pub fn dormant_ids(&self) -> impl Iterator<Item = &Uuid> {
+        self.dormant.keys()
     }
 
     /// Broadcast `Stop` to all managed actors. Returns the number of actors signaled.

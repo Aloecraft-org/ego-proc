@@ -23,7 +23,16 @@ actor code runs on **native**, **WASI P2**, and **browser** targets.
   (`oneshot`, `restart`, `restart_at_most(n)`), signal broadcast, and
   upward output draining
 - **`ActorHandle`** — clonable handle carrying control, data, and health
-  channels for one actor
+  channels for one actor, plus deadline'd request-reply (`handle.request`):
+  the reply future resolves with the answer or a typed timeout, so callers
+  never hang on a wedged actor
+- **`ForeignActor` / `Foreign<T>`** — a lower-level contract for actors whose
+  state lives behind an opaque handle (an embedded interpreter, a wasm
+  instance, C-library state), lifted into `ActorState` by one adapter that
+  owns pacing, park bookkeeping, and backpressure policy
+- **Dormancy** — `passivate` a live actor to bytes and `reactivate` it later
+  under the same `Uuid` (optionally woken automatically by incoming data);
+  where the bytes live is a pluggable `DormantStore`, in-memory by default
 - **Protobuf control plane** — `ControlSignal`, `LifecycleStatus`,
   `ActorHealth`, and `OrchestrationStrategy` are defined in
   [`proto/ego_proc.proto`](proto/ego_proc.proto) and generated at build time
