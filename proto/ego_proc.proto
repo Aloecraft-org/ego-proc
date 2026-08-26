@@ -16,6 +16,10 @@ enum LifecycleStatus {
     Paused = 3;
     Complete = 4;
     Error = 5;
+    // Actor state has been passivated to bytes; the slot (and its Uuid) is
+    // still alive but no task is running. Wire-compatible addition, but audit
+    // exhaustive Rust matches at consumer sites when upgrading.
+    Dormant = 6;
 }
 
 enum OrchestrationType {
