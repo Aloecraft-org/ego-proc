@@ -1,14 +1,10 @@
-// tests/actor_lifecycle.rs
-
 mod common;
-use common::{async_test, test};
+use common::async_test;
 
-use ego_proc::actor::{Actor, ActorState};
-use ego_proc::ipc::{NoOutput, ProcData, ProcOutput};
 use async_trait::async_trait;
-use ego_proc::{
-    ActorHealth, ControlSignal, LifecycleStatus, OrchestrationStrategy, OrchestrationType,
-};
+use ego_proc::actor::{Actor, ActorState};
+use ego_proc::ipc::{ProcData, ProcOutput};
+use ego_proc::{ActorHealth, ControlSignal, LifecycleStatus};
 use std::time::Duration;
 use tokio::sync::{broadcast, mpsc};
 use uuid::Uuid;
@@ -79,10 +75,10 @@ impl ActorState for TestActor {
         if let Some(tx) = &self.tick_tx {
             let _ = tx.send(self.tick_count).await;
         }
-        if let Some(max) = self.max_ticks {
-            if self.tick_count >= max {
-                return Ok(false);
-            }
+        if let Some(max) = self.max_ticks
+            && self.tick_count >= max
+        {
+            return Ok(false);
         }
         Ok(true)
     }
@@ -105,16 +101,16 @@ impl ActorState for TestActor {
 
 // --- Helper: spawn a raw Actor and return channels ---
 
-fn spawn_test_actor(
-    state: TestActor,
-) -> (
+type SpawnedTestActor = (
     Uuid,
     mpsc::Sender<ControlSignal>,
     mpsc::Sender<TestData>,
     broadcast::Sender<ActorHealth>,
     mpsc::Receiver<(Uuid, TestOutput)>,
     ego_platform::spawn::TaskHandle<()>,
-) {
+);
+
+fn spawn_test_actor(state: TestActor) -> SpawnedTestActor {
     let (control_tx, control_rx) = mpsc::channel(8);
     let (data_tx, data_rx) = mpsc::channel(8);
     let (health_tx, _) = broadcast::channel(16);
@@ -148,8 +144,8 @@ async fn test_actor_runs_and_ticks() {
         .await
         .expect("Should receive health report");
     assert_eq!(
-        LifecycleStatus::from_i32(report.lifecycle_status),
-        Some(LifecycleStatus::Running)
+        LifecycleStatus::try_from(report.lifecycle_status),
+        Ok(LifecycleStatus::Running)
     );
     assert!(report.saturation >= 0.0);
 

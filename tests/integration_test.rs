@@ -1,15 +1,12 @@
-// tests/integration_test.rs
-
 mod common;
-use common::{async_test, test};
+use common::async_test;
 
-use ego_proc::actor::{ActorState, Orchestrator};
-use ego_proc::ipc::{NoOutput, ProcData, ProcOutput};
 use async_trait::async_trait;
-use ego_proc::{ControlSignal, OrchestrationStrategy, OrchestrationType};
+use ego_proc::actor::{ActorState, Orchestrator};
+use ego_proc::ipc::{NoOutput, ProcData};
+use ego_proc::{ControlSignal, OrchestrationStrategy};
 use std::time::Duration;
 use tokio::sync::mpsc;
-use uuid::Uuid;
 
 // 1. Define the Data Packet
 #[derive(Debug, Clone, PartialEq)]

@@ -1,12 +1,10 @@
-// tests/orchestrator_lifecycle.rs
-
 mod common;
-use common::{async_test, test};
+use common::async_test;
 
-use ego_proc::actor::{ActorState, Orchestrator};
-use ego_proc::ipc::{NoOutput, ProcData, ProcOutput};
 use async_trait::async_trait;
-use ego_proc::{ControlSignal, OrchestrationStrategy, OrchestrationType};
+use ego_proc::actor::{ActorState, Orchestrator};
+use ego_proc::ipc::{ProcData, ProcOutput};
+use ego_proc::{ControlSignal, OrchestrationStrategy};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
@@ -25,7 +23,6 @@ struct OrcActor {
     crash_on_tick: u32, // 0 = never crash
     tick_count: u32,
     output_buffer: Vec<OrcOutput>,
-    spawn_counter: Arc<AtomicU32>,
 }
 
 impl OrcActor {
@@ -35,7 +32,6 @@ impl OrcActor {
             crash_on_tick: 0,
             tick_count: 0,
             output_buffer: Vec::new(),
-            spawn_counter,
         }
     }
 
@@ -45,7 +41,6 @@ impl OrcActor {
             crash_on_tick: tick,
             tick_count: 0,
             output_buffer: Vec::new(),
-            spawn_counter,
         }
     }
 }

@@ -1,8 +1,12 @@
+/// Alias for `Send + Sync` on multi-threaded platforms; empty on the
+/// single-threaded browser target so `!Send` types still satisfy actor bounds.
 #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 pub trait PlatformSendSync: Send + Sync {}
 #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 impl<T: ?Sized + Send + Sync> PlatformSendSync for T {}
 
+/// Alias for `Send + Sync` on multi-threaded platforms; empty on the
+/// single-threaded browser target so `!Send` types still satisfy actor bounds.
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 pub trait PlatformSendSync {}
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]

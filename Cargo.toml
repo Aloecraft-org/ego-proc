@@ -2,6 +2,9 @@
 name = "ego_proc"
 version = "0.1.2"
 edition = "2024"
+rust-version = "1.88"
+description = "Actor and orchestration primitives (supervision, restart strategies, typed handles) built on ego_platform"
+repository = "https://github.com/Aloecraft-org/ego-proc"
 
 [lib]
 name = "ego_proc"
@@ -9,25 +12,20 @@ path = "src/lib.rs"
 
 [dependencies]
 ego_platform = { git = "https://github.com/Aloecraft-org/ego-platform" }
-futures = "0.3"
 log = "0.4"
-anyhow = "1.0.101"
+anyhow = "1.0"
 tokio = { version = "1", features = ["sync", "macros", "io-util", "rt", "time"] }
 async-trait = "0.1"
-uuid = {version = "1.20.0",features = ["v4", "js", "v7"]}
-
-serde = { version = "1.0",  features = ["derive","std"]  }
-serde_json = "1.0"
+uuid = { version = "1", features = ["v4", "v7", "js"] }
+serde = { version = "1", features = ["derive", "std"] }
 prost = "0.14"
-thiserror = "2"
 
+# wasm-bindgen is not a direct dependency, but ego_platform pins it to the
+# exact version matching the wasm-bindgen-cli / wasm-bindgen-test-runner
+# installed in the devcontainer and CI (the bindgen ABI is unstable).
 
-[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
-wasm-bindgen-futures = "0.4"
-wasm-bindgen = "0.2"
-
-[dev-dependencies]
-wasm-bindgen-test = "0.3.12"
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dev-dependencies]
+wasm-bindgen-test = "0.3"
 
 [build-dependencies]
-prost-build = "0.13"
+prost-build = "0.14"

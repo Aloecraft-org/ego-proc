@@ -1,19 +1,8 @@
-use crate::ipc::{ProcData, ProcOutput};
+use crate::ipc::PlatformSendSync;
 use crate::{ActorHealth, ControlSignal, LifecycleStatus};
-use async_trait::async_trait;
 use std::time::Duration;
 use tokio::sync::{broadcast, mpsc};
 use uuid::Uuid;
-
-#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
-pub trait PlatformSendSync: Send + Sync {}
-#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
-impl<T: ?Sized + Send + Sync> PlatformSendSync for T {}
-
-#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
-pub trait PlatformSendSync {}
-#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
-impl<T: ?Sized> PlatformSendSync for T {}
 
 #[cfg_attr(
     not(all(target_arch = "wasm32", target_os = "unknown")),
