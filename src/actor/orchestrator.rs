@@ -1,10 +1,9 @@
 use crate::actor::{Actor, ActorState};
-use crate::ipc::{ActorHandle, ProcData, ProcOutput};
-use crate::{ActorHealth, ControlSignal, OrchestrationStrategy, OrchestrationType};
+use crate::ipc::ActorHandle;
+use crate::{ControlSignal, OrchestrationStrategy, OrchestrationType};
 
 use std::collections::HashMap;
 use tokio::sync::{broadcast, mpsc};
-use tokio::task::JoinHandle;
 use uuid::Uuid;
 
 /// A strictly typed manager for a specific kind of Actor.
@@ -124,9 +123,8 @@ impl<S: ActorState> Orchestrator<S> {
             // Preserve the domain name so we can remap after restart
             let domain_name = self.reverse_domain_map.remove(&id);
 
-            match OrchestrationType::from_i32(self.strategy.strategy_type) {
-                // NEW: Handle the limit
-                Some(OrchestrationType::Restart) => {
+            match OrchestrationType::try_from(self.strategy.strategy_type) {
+                Ok(OrchestrationType::Restart) => {
                     if self.current_restarts < self.strategy.restart_limit
                         || self.strategy.restart_limit == -1
                     {
@@ -137,11 +135,11 @@ impl<S: ActorState> Orchestrator<S> {
                             self.current_restarts,
                             self.strategy.restart_limit
                         );
-                        if let Some(new_id) = self.perform_restart(id) {
-                            if let Some(name) = &domain_name {
-                                self.domain_map.insert(name.clone(), new_id);
-                                self.reverse_domain_map.insert(new_id, name.clone());
-                            }
+                        if let Some(new_id) = self.perform_restart(id)
+                            && let Some(name) = &domain_name
+                        {
+                            self.domain_map.insert(name.clone(), new_id);
+                            self.reverse_domain_map.insert(new_id, name.clone());
                         }
                     } else {
                         log::error!(
@@ -152,10 +150,10 @@ impl<S: ActorState> Orchestrator<S> {
                     }
                 }
 
-                Some(OrchestrationType::OneShot) => {
+                Ok(OrchestrationType::OneShot) => {
                     log::info!("Actor {} finished naturally.", id);
                 }
-                Some(OrchestrationType::Escalate) => {
+                Ok(OrchestrationType::Escalate) => {
                     log::error!("Critical actor {} died! Escalating...", id);
                     // In a real app, you might set a flag here to kill the Controller
                     // e.g., self.status = Status::Error;

@@ -1,16 +1,10 @@
-// tests/supervision_tree.rs
-
 mod common;
-use common::{async_test, test};
+use common::async_test;
 
-use ego_proc::actor::{ActorState, Orchestrator};
-
-use ego_proc::ipc::{NoOutput, ProcData, ProcOutput};
 use async_trait::async_trait;
-use ego_proc::{ControlSignal, OrchestrationStrategy, OrchestrationType};
-
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU32, Ordering};
+use ego_proc::actor::{ActorState, Orchestrator};
+use ego_proc::ipc::{NoOutput, ProcData, ProcOutput};
+use ego_proc::{ControlSignal, OrchestrationStrategy};
 use std::time::Duration;
 
 // --- Worker ---
@@ -145,7 +139,7 @@ async fn test_manager_pattern() {
     // Spawn a worker inside the manager before handing it to the orchestrator
     mgr.workers.spawn(Worker::new(1));
 
-    let mgr_id = orch.spawn(mgr);
+    let _mgr_id = orch.spawn(mgr);
 
     // Let the system run — manager ticks, workers tick, output flows
     ego_platform::sleep(Duration::from_millis(100)).await;

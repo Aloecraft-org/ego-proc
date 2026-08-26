@@ -1,20 +1,7 @@
-use crate::ipc::ProcData;
+use crate::ipc::PlatformSendSync;
 use crate::{ActorHealth, ControlSignal};
-use crate::ControlSignal::Resume;
 
 use tokio::sync::{broadcast, mpsc};
-
-#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
-pub trait PlatformSendSync: Send + Sync {}
-
-#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
-impl<T: Send + Sync> PlatformSendSync for T {}
-
-#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
-pub trait PlatformSendSync {}
-
-#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
-impl<T> PlatformSendSync for T {}
 
 #[derive(Clone, Debug)]
 pub struct ActorHandle<D: Clone + PlatformSendSync> {

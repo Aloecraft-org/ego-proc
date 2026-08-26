@@ -12,7 +12,8 @@ quiet:
 	@true
 
 clean:
-	rm -rf target .data
+	cargo clean
+	rm -rf .data
 
 _init:
 	@mkdir -p .data/home .data/tmp
@@ -31,22 +32,20 @@ $(eval $(call cargo_targets,build))
 $(eval $(call cargo_targets,check))
 $(eval $(call cargo_targets,test))
 
-check: check_native check_wasi check_browser
-test: test_native test_wasi test_browser
-build: build_native build_wasi build_browser
-
-clean:
-	cargo clean
-
 fmt:
 	cargo fmt
 
+fmt_check:
+	cargo fmt --all -- --check
+
 clippy:
 	cargo clippy --all-targets --all-features -- -D warnings
+	cargo clippy --all-targets $(TARGET_WASI) -- -D warnings
+	cargo clippy --all-targets $(TARGET_BROWSER) -- -D warnings
 
 doc:
 	cargo doc --no-deps --open
 
 all: check test build
 
-ci: fmt clippy check test
+ci: fmt_check clippy check test
