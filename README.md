@@ -92,7 +92,7 @@ orch.broadcast(ControlSignal::Stop).await;
 - WASI test runtime: [wasmtime](https://wasmtime.dev/) (used as the cargo
   runner, see `.cargo/config.toml`)
 - Browser tests: `wasm-bindgen-cli` **matching the `wasm-bindgen` version in
-  `Cargo.lock`** (pinned via ego-platform, currently 0.2.114) plus a browser
+  `Cargo.lock`** (pinned via ego-platform, currently 0.2.127) plus a browser
   and webdriver (e.g. Firefox + geckodriver)
 
 The devcontainer in `.devcontainer/` has all of this preinstalled.

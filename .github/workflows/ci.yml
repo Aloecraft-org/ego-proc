@@ -16,7 +16,7 @@ env:
   # ego_platform dependency). The bindgen ABI is unstable and
   # wasm-bindgen-test-runner refuses to run on a mismatch (same constraint
   # as .devcontainer/Dockerfile).
-  WASM_BINDGEN_VERSION: 0.2.114
+  WASM_BINDGEN_VERSION: 0.2.127
 
 jobs:
   lint:
